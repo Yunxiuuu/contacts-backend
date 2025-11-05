@@ -1,54 +1,81 @@
-// index.js (替换你的现有文件)
+// index.js
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 
 const app = express();
 app.use(express.json());
-
-// CORS: 只允许前端域名（从环境变量读取）
-const allowedOrigin = process.env.ALLOWED_ORIGIN || 'https://contacts-frontend-swart.vercel.app';
 app.use(cors({
-  origin: allowedOrigin,
+  origin: process.env.ALLOWED_ORIGIN || '*',
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  credentials: true
+  credentials: true,
 }));
 
-// MongoDB connection: 使用环境变量 MONGODB_URI (必须在 Vercel 后端项目设置)
-const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/contactsdb';
-mongoose.connect(mongoUri, { })
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => {
-    console.error('MongoDB connection error:', err);
-    // 如果需要可以在这里退出进程或继续重试，视你的需求
+const MONGODB_URI = process.env.MONGODB_URI;
+
+// --- Connection helper for serverless (cache connection between invocations) ---
+async function connectToDatabase() {
+  if (!MONGODB_URI) {
+    throw new Error('MONGODB_URI environment variable not set');
+  }
+
+  // If already connected, reuse.
+  if (mongoose.connection && mongoose.connection.readyState === 1) {
+    return;
+  }
+
+  // If there is a cached promise, await it to avoid race conditions.
+  if (global._mongooseConnectPromise) {
+    await global._mongooseConnectPromise;
+    return;
+  }
+
+  // Create and cache connection promise
+  global._mongooseConnectPromise = mongoose.connect(MONGODB_URI, {
+    // recommended options are default in mongoose 6+, keep empty or add options if needed
   });
 
-// Mongoose schema & model
+  await global._mongooseConnectPromise;
+  console.log('✅ MongoDB connected (serverless)');
+}
+
+// --- Schema & Model (protect against model overwrite in serverless hot reload) ---
 const contactSchema = new mongoose.Schema({
   name: { type: String, required: true },
   phone: { type: String, required: true },
   email: String,
   other: String,
+}, { timestamps: true });
+
+const Contact = mongoose.models.Contact || mongoose.model('Contact', contactSchema);
+
+// --- Middleware to ensure DB connected before handling request ---
+app.use(async (req, res, next) => {
+  try {
+    await connectToDatabase();
+    next();
+  } catch (err) {
+    console.error('DB connection error:', err);
+    // Return a helpful JSON error so you can see it in the browser/net tools
+    return res.status(500).json({ error: 'Database connection failed', detail: err.message });
+  }
 });
 
-const Contact = mongoose.model('Contact', contactSchema);
-
-// Get contacts, support fuzzy search and sorting by name
+// --- Routes ---
 app.get('/api/contacts', async (req, res) => {
   try {
     const { name, phone } = req.query;
-    let filter = {};
+    const filter = {};
     if (name) filter.name = { $regex: name, $options: 'i' };
     if (phone) filter.phone = { $regex: phone, $options: 'i' };
     const contacts = await Contact.find(filter).sort({ name: 1 });
     res.json(contacts);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('GET /api/contacts error:', err);
+    res.status(500).json({ error: 'Server error', detail: err.message });
   }
 });
 
-// Add contact (required name and phone)
 app.post('/api/contacts', async (req, res) => {
   try {
     if (!req.body.name || !req.body.phone) {
@@ -58,107 +85,40 @@ app.post('/api/contacts', async (req, res) => {
     await contact.save();
     res.json(contact);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('POST /api/contacts error:', err);
+    res.status(500).json({ error: 'Server error', detail: err.message });
   }
 });
 
-// Update contact
 app.put('/api/contacts/:id', async (req, res) => {
   try {
     const contact = await Contact.findByIdAndUpdate(req.params.id, req.body, { new: true });
     res.json(contact);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('PUT /api/contacts/:id error:', err);
+    res.status(500).json({ error: 'Server error', detail: err.message });
   }
 });
 
-// Delete contact by id
 app.delete('/api/contacts/:id', async (req, res) => {
   try {
     await Contact.findByIdAndDelete(req.params.id);
     res.json({ msg: 'Deleted' });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('DELETE /api/contacts/:id error:', err);
+    res.status(500).json({ error: 'Server error', detail: err.message });
   }
 });
 
-// Delete ALL contacts (Clear All)
 app.delete('/api/contacts', async (req, res) => {
   try {
     await Contact.deleteMany({});
     res.json({ msg: 'All contacts cleared' });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('DELETE /api/contacts error:', err);
+    res.status(500).json({ error: 'Server error', detail: err.message });
   }
 });
 
-// 端口：使用 process.env.PORT（Vercel/平台会注入）
-const port = process.env.PORT || 5000;
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-
-const app = express();
-app.use(express.json());
-app.use(cors({
-  origin: process.env.ALLOWED_ORIGIN || '*',
-}));
-
-// Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('✅ MongoDB connected'))
-  .catch(err => console.error('❌ MongoDB connection error:', err));
-
-// Schema & Model
-const contactSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  phone: { type: String, required: true },
-  email: String,
-  other: String,
-});
-const Contact = mongoose.model('Contact', contactSchema);
-
-// Routes
-app.get('/api/contacts', async (req, res) => {
-  const { name, phone } = req.query;
-  let filter = {};
-  if (name) filter.name = { $regex: name, $options: 'i' };
-  if (phone) filter.phone = { $regex: phone, $options: 'i' };
-  const contacts = await Contact.find(filter).sort({ name: 1 });
-  res.json(contacts);
-});
-
-app.post('/api/contacts', async (req, res) => {
-  if (!req.body.name || !req.body.phone) {
-    return res.status(400).json({ error: 'Name and Phone are required.' });
-  }
-  const contact = new Contact(req.body);
-  await contact.save();
-  res.json(contact);
-});
-
-app.put('/api/contacts/:id', async (req, res) => {
-  const contact = await Contact.findByIdAndUpdate(req.params.id, req.body, { new: true });
-  res.json(contact);
-});
-
-app.delete('/api/contacts/:id', async (req, res) => {
-  await Contact.findByIdAndDelete(req.params.id);
-  res.json({ msg: 'Deleted' });
-});
-
-app.delete('/api/contacts', async (req, res) => {
-  await Contact.deleteMany({});
-  res.json({ msg: 'All contacts cleared' });
-});
-
-// ❌ 不要再监听端口
-// app.listen(5000, () => console.log('Server running...'));
-
-// ✅ 导出 app（Vercel 需要）
+// Export app for Vercel serverless
 module.exports = app;
-
