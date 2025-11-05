@@ -1,19 +1,25 @@
-git add .
-git commit -m "force redeploy"
-git push
-
-// index.js
+// index.js — Serverless-friendly Express + Mongoose app for Vercel
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 
 const app = express();
 app.use(express.json());
+
+// Allow preflight and JSON requests
 app.use(cors({
   origin: process.env.ALLOWED_ORIGIN || '*',
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
   credentials: true,
 }));
+
+// Simple health / root route to check deployment
+app.get('/', (req, res) => {
+  res.send({ ok: true, message: 'Backend running (serverless).' });
+});
+
+// Serve a blank favicon route to avoid favicon 500s
+app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
@@ -36,7 +42,7 @@ async function connectToDatabase() {
 
   // Create and cache connection promise
   global._mongooseConnectPromise = mongoose.connect(MONGODB_URI, {
-    // recommended options are default in mongoose 6+, keep empty or add options if needed
+    // Mongoose 6+ defaults are usually fine; add options if needed
   });
 
   await global._mongooseConnectPromise;
@@ -60,7 +66,6 @@ app.use(async (req, res, next) => {
     next();
   } catch (err) {
     console.error('DB connection error:', err);
-    // Return a helpful JSON error so you can see it in the browser/net tools
     return res.status(500).json({ error: 'Database connection failed', detail: err.message });
   }
 });
