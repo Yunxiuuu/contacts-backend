@@ -1,3 +1,7 @@
+git add .
+git commit -m "force redeploy"
+git push
+
 // index.js
 const express = require('express');
 const mongoose = require('mongoose');
