@@ -165,6 +165,7 @@ app.get('/contacts/export', (req, res) => {
 });
 
 // POST /contacts/import  -> upload XLSX file
+// Behavior: if a row contains id matching existing contact -> update; else create new
 app.post('/contacts/import', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
