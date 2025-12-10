@@ -1,133 +1,240 @@
-// index.js — Serverless-friendly Express + Mongoose app for Vercel
 const express = require('express');
-const mongoose = require('mongoose');
+const fs = require('fs');
+const path = require('path');
 const cors = require('cors');
+const multer = require('multer');
+const XLSX = require('xlsx');
+const { v4: uuidv4 } = require('uuid');
 
-const app = express();
-app.use(express.json());
+const DATA_DIR = path.join(__dirname, 'data');
+const DB_FILE = path.join(DATA_DIR, 'contacts.json');
 
-// Allow preflight and JSON requests
-app.use(cors({
-  origin: process.env.ALLOWED_ORIGIN || '*',
-  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  credentials: true,
-}));
-
-// Simple health / root route to check deployment
-app.get('/', (req, res) => {
-  res.send({ ok: true, message: 'Backend running (serverless).' });
-});
-
-// Serve a blank favicon route to avoid favicon 500s
-app.get('/favicon.ico', (req, res) => res.status(204).end());
-
-const MONGODB_URI = process.env.MONGODB_URI;
-
-// --- Connection helper for serverless (cache connection between invocations) ---
-async function connectToDatabase() {
-  if (!MONGODB_URI) {
-    throw new Error('MONGODB_URI environment variable not set');
-  }
-
-  // If already connected, reuse.
-  if (mongoose.connection && mongoose.connection.readyState === 1) {
-    return;
-  }
-
-  // If there is a cached promise, await it to avoid race conditions.
-  if (global._mongooseConnectPromise) {
-    await global._mongooseConnectPromise;
-    return;
-  }
-
-  // Create and cache connection promise
-  global._mongooseConnectPromise = mongoose.connect(MONGODB_URI, {
-    // Mongoose 6+ defaults are usually fine; add options if needed
-  });
-
-  await global._mongooseConnectPromise;
-  console.log('✅ MongoDB connected (serverless)');
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR);
+}
+if (!fs.existsSync(DB_FILE)) {
+  fs.writeFileSync(DB_FILE, JSON.stringify([]));
 }
 
-// --- Schema & Model (protect against model overwrite in serverless hot reload) ---
-const contactSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  phone: { type: String, required: true },
-  email: String,
-  other: String,
-}, { timestamps: true });
-
-const Contact = mongoose.models.Contact || mongoose.model('Contact', contactSchema);
-
-// --- Middleware to ensure DB connected before handling request ---
-app.use(async (req, res, next) => {
+function readDB() {
+  const raw = fs.readFileSync(DB_FILE, 'utf8');
   try {
-    await connectToDatabase();
-    next();
+    return JSON.parse(raw || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+function writeDB(data) {
+  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+}
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Multer for file upload (import)
+const upload = multer({ storage: multer.memoryStorage() });
+
+// Helper: normalize contact shape
+function normalizeContact(input) {
+  // Expected input: { name, methods: [{type,value,label}], ... }
+  return {
+    id: input.id || uuidv4(),
+    name: input.name || '',
+    note: input.note || '',
+    methods: Array.isArray(input.methods) ? input.methods.map(m => ({
+      type: m.type || 'phone',
+      value: m.value || '',
+      label: m.label || ''
+    })) : [],
+    bookmarked: !!input.bookmarked,
+    createdAt: input.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+// GET /contacts  (supports ?bookmarked=true)
+app.get('/contacts', (req, res) => {
+  const db = readDB();
+  const { bookmarked } = req.query;
+  let result = db;
+  if (bookmarked === 'true') {
+    result = db.filter(c => !!c.bookmarked);
+  }
+  res.json(result);
+});
+
+// GET /contacts/:id
+app.get('/contacts/:id', (req, res) => {
+  const db = readDB();
+  const contact = db.find(c => c.id === req.params.id);
+  if (!contact) return res.status(404).json({ error: 'Not found' });
+  res.json(contact);
+});
+
+// POST /contacts
+app.post('/contacts', (req, res) => {
+  const db = readDB();
+  const contact = normalizeContact(req.body);
+  db.push(contact);
+  writeDB(db);
+  res.status(201).json(contact);
+});
+
+// PUT /contacts/:id  (replace)
+app.put('/contacts/:id', (req, res) => {
+  const db = readDB();
+  const idx = db.findIndex(c => c.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Not found' });
+  const updated = normalizeContact(Object.assign({}, req.body, { id: req.params.id, createdAt: db[idx].createdAt }));
+  db[idx] = updated;
+  writeDB(db);
+  res.json(updated);
+});
+
+// PATCH /contacts/:id  (partial update)
+app.patch('/contacts/:id', (req, res) => {
+  const db = readDB();
+  const idx = db.findIndex(c => c.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Not found' });
+  const existing = db[idx];
+  const merged = Object.assign({}, existing, req.body, { updatedAt: new Date().toISOString() });
+  // normalize methods if provided
+  if (req.body.methods) {
+    merged.methods = Array.isArray(req.body.methods) ? req.body.methods.map(m => ({
+      type: m.type || 'phone',
+      value: m.value || '',
+      label: m.label || ''
+    })) : existing.methods;
+  }
+  db[idx] = merged;
+  writeDB(db);
+  res.json(merged);
+});
+
+// PATCH /contacts/:id/bookmark  (toggle or set)
+app.patch('/contacts/:id/bookmark', (req, res) => {
+  const db = readDB();
+  const idx = db.findIndex(c => c.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Not found' });
+  const setTo = typeof req.body.bookmarked === 'boolean' ? req.body.bookmarked : !db[idx].bookmarked;
+  db[idx].bookmarked = setTo;
+  db[idx].updatedAt = new Date().toISOString();
+  writeDB(db);
+  res.json(db[idx]);
+});
+
+// DELETE /contacts/:id
+app.delete('/contacts/:id', (req, res) => {
+  let db = readDB();
+  const idx = db.findIndex(c => c.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Not found' });
+  const removed = db.splice(idx, 1)[0];
+  writeDB(db);
+  res.json({ deleted: true, contact: removed });
+});
+
+// GET /contacts/export  -> XLSX download
+app.get('/contacts/export', (req, res) => {
+  const db = readDB();
+  // Flatten methods to multiple columns: method_1_type, method_1_value, method_1_label, method_2_...
+  const maxMethods = Math.max(0, ...db.map(c => (c.methods || []).length));
+  const rows = db.map(c => {
+    const base = {
+      id: c.id,
+      name: c.name,
+      note: c.note || '',
+      bookmarked: c.bookmarked ? 'true' : 'false',
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt
+    };
+    (c.methods || []).forEach((m, i) => {
+      const idx = i + 1;
+      base[`method_${idx}_type`] = m.type;
+      base[`method_${idx}_value`] = m.value;
+      base[`method_${idx}_label`] = m.label || '';
+    });
+    return base;
+  });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'contacts');
+
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+  res.setHeader('Content-Disposition', 'attachment; filename="contacts.xlsx"');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.send(buf);
+});
+
+// POST /contacts/import  -> upload XLSX file
+// Behavior: for each row, create a new contact. Duplicate handling: if a row contains id matching existing contact -> update; else create new.
+// NOTE: You can change duplicate strategy (skip/merge/overwrite) later.
+app.post('/contacts/import', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  try {
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+    let db = readDB();
+    let created = 0, updated = 0, skipped = 0;
+
+    rows.forEach(row => {
+      // Build contact from row: we expect name, note, bookmarked, id optional, method_* columns
+      const id = row.id && String(row.id).trim() !== '' ? String(row.id) : null;
+      const name = row.name || '';
+      const note = row.note || '';
+      const bookmarked = String(row.bookmarked || '').toLowerCase() === 'true';
+
+      // Collect method_* columns
+      const methods = [];
+      Object.keys(row).forEach(k => {
+        const m = k.match(/^method_(\d+)_type$/);
+        if (m) {
+          const idx = m[1];
+          const type = row[`method_${idx}_type`] || '';
+          const value = row[`method_${idx}_value`] || '';
+          const label = row[`method_${idx}_label`] || '';
+          if (value && value.toString().trim() !== '') {
+            methods.push({ type, value: String(value), label });
+          }
+        }
+      });
+
+      if (id) {
+        const idx = db.findIndex(c => c.id === id);
+        if (idx !== -1) {
+          db[idx] = Object.assign({}, db[idx], {
+            name, note, methods, bookmarked, updatedAt: new Date().toISOString()
+          });
+          updated++;
+        } else {
+          const newC = normalizeContact({ id, name, note, methods, bookmarked });
+          db.push(newC);
+          created++;
+        }
+      } else {
+        const newC = normalizeContact({ name, note, methods, bookmarked });
+        db.push(newC);
+        created++;
+      }
+    });
+
+    writeDB(db);
+    res.json({ ok: true, created, updated, skipped });
   } catch (err) {
-    console.error('DB connection error:', err);
-    return res.status(500).json({ error: 'Database connection failed', detail: err.message });
+    console.error('Import error', err);
+    res.status(500).json({ error: 'Failed to parse file' });
   }
 });
 
-// --- Routes ---
-app.get('/api/contacts', async (req, res) => {
-  try {
-    const { name, phone } = req.query;
-    const filter = {};
-    if (name) filter.name = { $regex: name, $options: 'i' };
-    if (phone) filter.phone = { $regex: phone, $options: 'i' };
-    const contacts = await Contact.find(filter).sort({ name: 1 });
-    res.json(contacts);
-  } catch (err) {
-    console.error('GET /api/contacts error:', err);
-    res.status(500).json({ error: 'Server error', detail: err.message });
-  }
+// Simple health
+app.get('/', (req, res) => {
+  res.json({ ok: true });
 });
 
-app.post('/api/contacts', async (req, res) => {
-  try {
-    if (!req.body.name || !req.body.phone) {
-      return res.status(400).json({ error: 'Name and Phone are required.' });
-    }
-    const contact = new Contact(req.body);
-    await contact.save();
-    res.json(contact);
-  } catch (err) {
-    console.error('POST /api/contacts error:', err);
-    res.status(500).json({ error: 'Server error', detail: err.message });
-  }
-});
-
-app.put('/api/contacts/:id', async (req, res) => {
-  try {
-    const contact = await Contact.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    res.json(contact);
-  } catch (err) {
-    console.error('PUT /api/contacts/:id error:', err);
-    res.status(500).json({ error: 'Server error', detail: err.message });
-  }
-});
-
-app.delete('/api/contacts/:id', async (req, res) => {
-  try {
-    await Contact.findByIdAndDelete(req.params.id);
-    res.json({ msg: 'Deleted' });
-  } catch (err) {
-    console.error('DELETE /api/contacts/:id error:', err);
-    res.status(500).json({ error: 'Server error', detail: err.message });
-  }
-});
-
-app.delete('/api/contacts', async (req, res) => {
-  try {
-    await Contact.deleteMany({});
-    res.json({ msg: 'All contacts cleared' });
-  } catch (err) {
-    console.error('DELETE /api/contacts error:', err);
-    res.status(500).json({ error: 'Server error', detail: err.message });
-  }
-});
-
-// Export app for Vercel serverless
-module.exports = app;
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => console.log(`Contacts backend running on ${PORT}`));
