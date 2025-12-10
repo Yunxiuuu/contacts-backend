@@ -1,7 +1,7 @@
 {
   "name": "contacts-backend",
   "version": "1.0.0",
-  "description": "Simple contacts backend with bookmark, multiple methods, import/export",
+  "description": "Contacts backend with bookmark, multiple methods, import/export",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
