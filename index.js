@@ -37,7 +37,6 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // Helper: normalize contact shape
 function normalizeContact(input) {
-  // Expected input: { name, methods: [{type,value,label}], ... }
   return {
     id: input.id || uuidv4(),
     name: input.name || '',
@@ -99,7 +98,6 @@ app.patch('/contacts/:id', (req, res) => {
   if (idx === -1) return res.status(404).json({ error: 'Not found' });
   const existing = db[idx];
   const merged = Object.assign({}, existing, req.body, { updatedAt: new Date().toISOString() });
-  // normalize methods if provided
   if (req.body.methods) {
     merged.methods = Array.isArray(req.body.methods) ? req.body.methods.map(m => ({
       type: m.type || 'phone',
@@ -137,8 +135,6 @@ app.delete('/contacts/:id', (req, res) => {
 // GET /contacts/export  -> XLSX download
 app.get('/contacts/export', (req, res) => {
   const db = readDB();
-  // Flatten methods to multiple columns: method_1_type, method_1_value, method_1_label, method_2_...
-  const maxMethods = Math.max(0, ...db.map(c => (c.methods || []).length));
   const rows = db.map(c => {
     const base = {
       id: c.id,
@@ -169,8 +165,6 @@ app.get('/contacts/export', (req, res) => {
 });
 
 // POST /contacts/import  -> upload XLSX file
-// Behavior: for each row, create a new contact. Duplicate handling: if a row contains id matching existing contact -> update; else create new.
-// NOTE: You can change duplicate strategy (skip/merge/overwrite) later.
 app.post('/contacts/import', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
@@ -183,13 +177,11 @@ app.post('/contacts/import', upload.single('file'), (req, res) => {
     let created = 0, updated = 0, skipped = 0;
 
     rows.forEach(row => {
-      // Build contact from row: we expect name, note, bookmarked, id optional, method_* columns
       const id = row.id && String(row.id).trim() !== '' ? String(row.id) : null;
       const name = row.name || '';
       const note = row.note || '';
       const bookmarked = String(row.bookmarked || '').toLowerCase() === 'true';
 
-      // Collect method_* columns
       const methods = [];
       Object.keys(row).forEach(k => {
         const m = k.match(/^method_(\d+)_type$/);
@@ -198,7 +190,7 @@ app.post('/contacts/import', upload.single('file'), (req, res) => {
           const type = row[`method_${idx}_type`] || '';
           const value = row[`method_${idx}_value`] || '';
           const label = row[`method_${idx}_label`] || '';
-          if (value && value.toString().trim() !== '') {
+          if (value && String(value).trim() !== '') {
             methods.push({ type, value: String(value), label });
           }
         }
@@ -231,10 +223,15 @@ app.post('/contacts/import', upload.single('file'), (req, res) => {
   }
 });
 
-// Simple health
+// health
 app.get('/', (req, res) => {
   res.json({ ok: true });
 });
 
+// Export app for serverless. Only listen when run directly.
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`Contacts backend running on ${PORT}`));
+if (require.main === module) {
+  app.listen(PORT, () => console.log(`Contacts backend running on ${PORT}`));
+}
+
+module.exports = app;
