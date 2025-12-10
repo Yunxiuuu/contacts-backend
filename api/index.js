@@ -1,9 +1,9 @@
 // Vercel Serverless Function entrypoint.
-// Vercel will call this file for requests to /api/*.
-// It simply forwards the request to the Express app exported from ../index.js
+// Vercel will call files in /api as serverless functions.
+// This file forwards requests to the Express app exported from ../index.js
 const app = require('../index');
 
-// Express app is a function (req,res) handler, but to be explicit:
 module.exports = (req, res) => {
+  // app is an express app (callable handler)
   return app(req, res);
 };
