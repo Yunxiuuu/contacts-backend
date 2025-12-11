@@ -1,12 +1,13 @@
 {
   "name": "contacts-backend",
   "version": "1.0.0",
-  "private": true,
-  "dependencies": {
-    "mongoose": "^7.0.0",
-    "xlsx": "^0.18.5"
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
   },
-  "engines": {
-    "node": "18.x"
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "mongoose": "^8.19.2"
   }
 }
