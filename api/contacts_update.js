@@ -1,18 +1,14 @@
-const Contact = require("./contact-model");
-require("./mongo");
+import contacts from "./_db";
 
-module.exports = async (req, res) => {
-  try {
-    if (req.method !== "PUT") {
-      return res.status(405).json({ error: "Method not allowed" });
-    }
+export default function handler(req, res) {
+  if (req.method !== "PUT")
+    return res.status(405).send("Method Not Allowed");
 
-    const updated = await Contact.findByIdAndUpdate(req.query.id, req.body, {
-      new: true,
-    });
+  const id = Number(req.query.id);
+  const { name } = req.body;
 
-    return res.status(200).json(updated);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-};
+  const c = contacts.find(c => c.id === id);
+  if (c) c.name = name;
+
+  res.json({ success: true });
+}
