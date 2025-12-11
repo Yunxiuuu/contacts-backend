@@ -1,22 +1,35 @@
-const mongoose = require('mongoose');
+// api/mongo.js
+const mongoose = require("mongoose");
 
-if (!global.mongoose) {
-  global.mongoose = { conn: null, promise: null };
+const MONGODB_URI = process.env.MONGODB_URI;
+
+if (!MONGODB_URI) {
+  throw new Error("Please define the MONGODB_URI environment variable in Vercel");
+}
+
+let cached = global._mongo; // node global cache across lambda warm invocations
+
+if (!cached) {
+  cached = global._mongo = { conn: null, promise: null };
 }
 
 async function dbConnect() {
-  if (global.mongoose.conn) return global.mongoose.conn;
-
-  if (!global.mongoose.promise) {
-    global.mongoose.promise = mongoose
-      .connect(process.env.MONGODB_URI, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-      })
-      .then((m) => m);
+  if (cached.conn) {
+    return cached.conn;
   }
-  global.mongoose.conn = await global.mongoose.promise;
-  return global.mongoose.conn;
+
+  if (!cached.promise) {
+    const opts = {
+      bufferCommands: false,
+      // other mongoose options if needed
+    };
+
+    cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
+      return mongoose;
+    });
+  }
+  cached.conn = await cached.promise;
+  return cached.conn;
 }
 
 module.exports = dbConnect;
