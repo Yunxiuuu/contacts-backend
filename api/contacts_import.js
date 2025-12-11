@@ -1,15 +1,18 @@
-import dbConnect from "./mongo";
-import Contact from "./contact-model";
-import * as xlsx from "xlsx";
+// api/contacts_import.js
+const dbConnect = require("./mongo");
+const Contact = require("./contact-model");
+const xlsx = require("xlsx");
 
-export default async function handler(req, res) {
-  await dbConnect();
-
+module.exports = async (req, res) => {
   try {
-    const { fileData } = req.body;
+    await dbConnect();
 
-    if (!fileData)
-      return res.status(400).json({ error: "未提供文件数据" });
+    if (req.method !== "POST") {
+      return res.status(405).json({ error: "Method not allowed" });
+    }
+
+    const { fileData } = req.body;
+    if (!fileData) return res.status(400).json({ error: "未提供文件数据" });
 
     const buffer = Buffer.from(fileData, "base64");
     const workbook = xlsx.read(buffer, { type: "buffer" });
@@ -21,14 +24,12 @@ export default async function handler(req, res) {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-
       if (!row["姓名"] || !row["主要电话"]) {
         errors.push(`第 ${i + 2} 行缺少必填字段`);
         continue;
       }
 
       const contactMethods = [];
-
       for (let j = 1; j <= 10; j++) {
         if (row[`联系方式${j}-类型`] && row[`联系方式${j}-值`]) {
           contactMethods.push({
@@ -48,19 +49,20 @@ export default async function handler(req, res) {
           bookmark: row["书签"] === "是",
           contactMethods,
         });
-
         imported.push(c);
-      } catch (err) {
-        errors.push(`第 ${i + 2} 行保存失败：${err.message}`);
+      } catch (e) {
+        errors.push(`第 ${i + 2} 行保存失败：${e.message}`);
       }
     }
 
-    res.status(200).json({
+    return res.status(200).json({
+      success: true,
       imported: imported.length,
       errors,
-      message: `成功导入 ${imported.length} 条，${errors.length} 条失败`,
+      message: `成功导入 ${imported.length} 个联系人，${errors.length} 个错误`,
     });
   } catch (err) {
-    res.status(500).json({ error: "导入失败", details: err.message });
+    console.error("POST /api/contacts_import error:", err);
+    return res.status(500).json({ error: err.message });
   }
-}
+};
