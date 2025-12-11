@@ -1,15 +1,21 @@
-import dbConnect from "./mongo";
-import Contact from "./contact-model";
+const Contact = require("./contact-model");
+require("./mongo");
 
-export default async function handler(req, res) {
-  await dbConnect();
+module.exports = async (req, res) => {
+  try {
+    if (req.method !== "POST") {
+      return res.status(405).json({ error: "Method not allowed" });
+    }
 
-  const data = req.body;
+    if (!req.body.name || !req.body.phone) {
+      return res.status(400).json({ error: "Name and Phone required" });
+    }
 
-  if (!data.name || !data.phone) {
-    return res.status(400).json({ error: "Name and Phone are required." });
+    const contact = new Contact(req.body);
+    await contact.save();
+
+    return res.status(200).json(contact);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
-
-  const contact = await Contact.create(data);
-  res.status(200).json(contact);
-}
+};
