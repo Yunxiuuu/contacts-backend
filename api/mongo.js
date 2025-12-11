@@ -1,22 +1,11 @@
-import mongoose from "mongoose";
+const mongoose = require("mongoose");
 
-const MONGODB_URI = process.env.MONGODB_URI;
-
-if (!global.mongoose) {
-  global.mongoose = { conn: null, promise: null };
+if (!global._mongooseConnected) {
+  mongoose.connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  });
+  global._mongooseConnected = true;
 }
 
-async function dbConnect() {
-  if (global.mongoose.conn) return global.mongoose.conn;
-
-  if (!global.mongoose.promise) {
-    global.mongoose.promise = mongoose
-      .connect(MONGODB_URI, { bufferCommands: false })
-      .then((mongoose) => mongoose);
-  }
-
-  global.mongoose.conn = await global.mongoose.promise;
-  return global.mongoose.conn;
-}
-
-export default dbConnect;
+module.exports = mongoose;
