@@ -1,20 +1,10 @@
-const Contact = require("./contact-model");
-require("./mongo");
+import contacts from "./_db";
 
-module.exports = async (req, res) => {
-  try {
-    if (req.method !== "DELETE") {
-      return res.status(405).json({ error: "Method not allowed" });
-    }
+export default function handler(req, res) {
+  const id = Number(req.query.id);
 
-    if (req.query.id) {
-      await Contact.findByIdAndDelete(req.query.id);
-      return res.status(200).json({ msg: "Deleted" });
-    } else {
-      await Contact.deleteMany({});
-      return res.status(200).json({ msg: "All cleared" });
-    }
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-};
+  const index = contacts.findIndex(c => c.id === id);
+  if (index !== -1) contacts.splice(index, 1);
+
+  res.json({ success: true });
+}
