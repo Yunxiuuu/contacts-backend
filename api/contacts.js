@@ -1,17 +1,22 @@
-import dbConnect from "./mongo";
-import Contact from "./contact-model";
+const Contact = require("./contact-model");
+require("./mongo");
 
-export default async function handler(req, res) {
-  await dbConnect();
+module.exports = async (req, res) => {
+  try {
+    if (req.method !== "GET") {
+      return res.status(405).json({ error: "Method not allowed" });
+    }
 
-  const { name, phone, bookmark } = req.query;
+    const { name, phone, bookmark } = req.query;
+    let filter = {};
 
-  let filter = {};
-  if (name) filter.name = { $regex: name, $options: "i" };
-  if (phone) filter.phone = { $regex: phone, $options: "i" };
-  if (bookmark === "true") filter.bookmark = true;
+    if (name) filter.name = { $regex: name, $options: "i" };
+    if (phone) filter.phone = { $regex: phone, $options: "i" };
+    if (bookmark === "true") filter.bookmark = true;
 
-  const contacts = await Contact.find(filter).sort({ name: 1 });
-
-  res.status(200).json(contacts);
-}
+    const contacts = await Contact.find(filter).sort({ name: 1 });
+    return res.status(200).json(contacts);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+};
