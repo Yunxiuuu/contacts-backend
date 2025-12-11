@@ -1,14 +1,22 @@
-import contacts from "./_db";
+// api/contacts_update.js
+const dbConnect = require("./mongo");
+const Contact = require("./contact-model");
 
-export default function handler(req, res) {
-  if (req.method !== "PUT")
-    return res.status(405).send("Method Not Allowed");
+module.exports = async (req, res) => {
+  try {
+    await dbConnect();
 
-  const id = Number(req.query.id);
-  const { name } = req.body;
+    if (req.method !== "PUT") {
+      return res.status(405).json({ error: "Method not allowed" });
+    }
 
-  const c = contacts.find(c => c.id === id);
-  if (c) c.name = name;
+    const id = req.query.id;
+    if (!id) return res.status(400).json({ error: "Missing id" });
 
-  res.json({ success: true });
-}
+    const updated = await Contact.findByIdAndUpdate(id, req.body, { new: true });
+    return res.status(200).json(updated);
+  } catch (err) {
+    console.error("PUT /api/contacts_update error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+};
