@@ -1,9 +1,9 @@
 {
-  "version": 3,
+  "version": 2,
   "builds": [
     {
       "src": "index.js",
-      "use": "@vercel/node@latest"
+      "use": "@vercel/node"
     }
   ],
   "routes": [
@@ -11,9 +11,5 @@
       "src": "/(.*)",
       "dest": "index.js"
     }
-  ],
-  "installCommand": "npm install",
-  "framework": null,
-  "outputDirectory": null,
-  "nodeVersion": "24.x"
+  ]
 }
