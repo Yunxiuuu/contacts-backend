@@ -1,11 +1,20 @@
-import dbConnect from "./mongo";
-import Contact from "./contact-model";
+const Contact = require("./contact-model");
+require("./mongo");
 
-export default async function handler(req, res) {
-  await dbConnect();
+module.exports = async (req, res) => {
+  try {
+    if (req.method !== "DELETE") {
+      return res.status(405).json({ error: "Method not allowed" });
+    }
 
-  const { id } = req.query;
-  await Contact.findByIdAndDelete(id);
-
-  res.status(200).json({ msg: "Deleted" });
-}
+    if (req.query.id) {
+      await Contact.findByIdAndDelete(req.query.id);
+      return res.status(200).json({ msg: "Deleted" });
+    } else {
+      await Contact.deleteMany({});
+      return res.status(200).json({ msg: "All cleared" });
+    }
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+};
