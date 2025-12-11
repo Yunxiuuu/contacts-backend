@@ -6,6 +6,7 @@ const cors = require('cors');
 const app = express();
 app.use(express.json());
 
+
 // Allow preflight and JSON requests
 app.use(cors({
   origin: process.env.ALLOWED_ORIGIN || '*',
