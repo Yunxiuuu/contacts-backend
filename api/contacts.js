@@ -1,25 +1,23 @@
-// api/contacts.js
-const dbConnect = require("./mongo");
-const Contact = require("./contact-model");
+const express = require("express");
+const router = express.Router();
+const { getDbConfig } = require("../db");
+const { Client } = require('pg');
 
-module.exports = async (req, res) => {
+// 获取所有联系人
+router.get("/", async (req, res) => {
+  const client = new Client(getDbConfig());
+  
   try {
-    await dbConnect();
-
-    if (req.method !== "GET") {
-      return res.status(405).json({ error: "Method not allowed" });
-    }
-
-    const { name, phone, bookmark } = req.query;
-    let filter = {};
-    if (name) filter.name = { $regex: name, $options: "i" };
-    if (phone) filter.phone = { $regex: phone, $options: "i" };
-    if (bookmark === "true") filter.bookmark = true;
-
-    const contacts = await Contact.find(filter).sort({ name: 1 });
-    return res.status(200).json(contacts);
-  } catch (err) {
-    console.error("GET /api/contacts error:", err);
-    return res.status(500).json({ error: err.message });
+    await client.connect();
+    const result = await client.query("SELECT * FROM contacts ORDER BY id DESC");
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching contacts:", error);
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    await client.end();
   }
-};
+});
+
+// 其他路由也按照同样方式修改...
+// 在每个路由中都需要重新创建数据库连接
