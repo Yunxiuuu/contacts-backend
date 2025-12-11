@@ -1,11 +1,18 @@
-import dbConnect from "./mongo";
-import Contact from "./contact-model";
+const Contact = require("./contact-model");
+require("./mongo");
 
-export default async function handler(req, res) {
-  await dbConnect();
+module.exports = async (req, res) => {
+  try {
+    if (req.method !== "PUT") {
+      return res.status(405).json({ error: "Method not allowed" });
+    }
 
-  const { id } = req.query;
-  const updated = await Contact.findByIdAndUpdate(id, req.body, { new: true });
+    const updated = await Contact.findByIdAndUpdate(req.query.id, req.body, {
+      new: true,
+    });
 
-  res.status(200).json(updated);
-}
+    return res.status(200).json(updated);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+};
